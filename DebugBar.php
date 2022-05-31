@@ -10,11 +10,12 @@ namespace Woody\Lib\DebugBar;
 use Woody\App\Container;
 use Woody\Modules\Module;
 use Woody\Services\ParameterManager;
-use Symfony\Component\Finder\Finder;
+use DebugBar\StandardDebugBar;
 
 final class DebugBar extends Module
 {
-    protected $debugbarManager;
+    protected $debugbar;
+    protected $debugbarRenderer;
 
     protected static $key = 'woody_lib_debugbar';
 
@@ -26,7 +27,15 @@ final class DebugBar extends Module
         define('WOODY_LIB_DEBUGBAR_DIR_RESOURCES', WOODY_LIB_DEBUGBAR_DIR_ROOT . '/Resources');
 
         parent::initialize($parameterManager, $container);
-        $this->debugbarManager = $this->container->get('debugbar.manager');
+        $this->debugbar = new StandardDebugBar();
+        $this->debugbarRenderer = $this->debugbar->getJavascriptRenderer();
+
+        // $this->debugbar->addCollector(new WPActionsCollector());
+        // $this->debugbar->addCollector(new WPFiltersCollector());
+
+        // if (defined('SAVEQUERIES') && SAVEQUERIES) {
+        //     $this->debugbar->addCollector(new WPDBCollector());
+        // }
     }
 
     public static function dependencyServiceDefinitions()
@@ -36,109 +45,57 @@ final class DebugBar extends Module
 
     public function subscribeHooks()
     {
-        // Admin settings
-        add_action('members_register_caps', [$this, 'membersRegisterCaps']);
-        // add_action('admin_menu', [$this, 'generateMenu']);
-
-        // Enqueue scripts
-        // add_action('wp_enqueue_scripts', [$this, 'enqueueAssets']);
-        // add_action('admin_enqueue_scripts', [$this, 'enqueueAdminAssets']);
-
-        // Register Views folder as Timber locations
-        add_filter('timber_locations', [$this, 'injectTimberLocation']);
-
-        // ACF filters
-        add_filter('acf/settings/load_json', [$this, 'acfJsonLoad']);
-        add_filter('woody_acf_save_paths', [$this, 'acfJsonSave']);
-
-        // Register translations
-        add_action('after_setup_theme', [$this, 'loadThemeTextdomain']);
-    }
-
-    public function membersRegisterCaps()
-    {
-        members_register_cap('woody_debugbar', array(
-            'label' => _x('Woody DebugBar', '', 'woody'),
-            'group' => 'woody',
-        ));
-    }
-
-    // public function generateMenu()
-    // {
-    //     acf_add_options_page([
-    //         'page_title'    => 'DebugBar',
-    //         'menu_title'    => 'DebugBar',
-    //         'menu_slug'     => 'debugbar-settings',
-    //         'capability'    => 'edit_pages',
-    //         'icon_url'      => 'dashicons-bell',
-    //         'position'      => 40,
-    //     ]);
-    // }
-
-    // public function enqueueAssets()
-    // {
-    //     wp_enqueue_script('lib-debugbar-javascripts', $this->libAssetPath('woody-lib-debugbar', 'js/woody-lib-debugbar.js'), ['jquery'], WOODY_LIB_DEBUGBAR_VERSION, true);
-    // }
-
-    // public function enqueueAdminAssets()
-    // {
-    //     $screen = get_current_screen();
-    //     if (!empty($screen->id) && strpos($screen->id, 'debugbar-settings') !== false) {
-    //         wp_enqueue_script('lib-admin-debugbar-javascripts', $this->libAssetPath('woody-lib-debugbar', 'js/woody-admin-lib-debugbar.js'), ['jquery'], WOODY_LIB_DEBUGBAR_VERSION, true);
-    //         wp_enqueue_style('lib-admin-debugbar-stylesheet', $this->libAssetPath('woody-lib-debugbar', 'scss/woody-admin-lib-debugbar.css'), [], null);
-    //     }
-    // }
-
-    public function injectTimberLocation($locations)
-    {
-        $locations[] = WOODY_LIB_DEBUGBAR_DIR_RESOURCES . '/Views' ;
-
-        return $locations;
-    }
-
-    /**
-     * Register ACF Json load directory
-     *
-     * @since 1.0.0
-     */
-    public function acfJsonLoad($paths)
-    {
-        $paths[] = WOODY_LIB_DEBUGBAR_DIR_RESOURCES . '/ACF';
-        return $paths;
-    }
-
-    /**
-     * Register ACF Json Save directory
-     *
-     * @since 1.0.0
-     */
-    public function acfJsonSave($groups)
-    {
-        $acf_json_path = WOODY_LIB_DEBUGBAR_DIR_RESOURCES . '/ACF';
-
-        $finder = new Finder();
-        $finder->files()->in($acf_json_path)->name('*.json');
-        foreach ($finder as $file) {
-            $filename = str_replace('.json', '', $file->getRelativePathname());
-            $groups[$filename] = $acf_json_path;
+        if (defined('DOING_AJAX') && DOING_AJAX) {
+            add_action('admin_init', [$this, 'init_ajax']);
         }
 
-        return $groups;
+        add_action('init', [$this, 'init']);
     }
 
-    public function loadThemeTextdomain()
+    public function init()
     {
-        load_theme_textdomain('woody-lib-debugbar', WOODY_LIB_DEBUGBAR_DIR_ROOT . '/Languages');
+        // if (!is_super_admin() || $this->is_wp_login()) {
+        //     return;
+        // }
+
+        add_action('wp_footer', [$this, 'render'], 1000);
+        add_action('wp_head', [$this, 'header'], 1);
     }
 
-    /**
-     * @noRector
-     * Commande pour créer automatiquement woody-lib-debugbar.pot
-     * A ouvrir ensuite avec PoEdit.app sous Mac
-     * cd ~/www/wordpress/current/vendor/woody-wordpress/woody-lib-debugbar/
-     * wp i18n make-pot . Languages/woody-lib-debugbar.pot
-     */
-    private function twigExtractPot()
+    public function init_ajax()
     {
+        if (!is_super_admin()) {
+            return;
+        }
+
+        $this->debugbar->sendDataInHeaders();
+    }
+
+    public function render()
+    {
+        echo $this->debugbarRenderer->render();
+    }
+
+    public function header()
+    {
+        echo $this->debugbarRenderer->renderHead();
+    }
+
+    private function is_wp_login()
+    {
+        return 'wp-login.php' == basename($_SERVER['SCRIPT_NAME']);
+    }
+
+    public function __call($name, $args)
+    {
+        if ($name == 'startMeasure') {
+            $this->debugbar['time']->startMeasure($args[0], $args[1]);
+        } elseif ($name == 'stopMeasure') {
+            $this->debugbar['time']->stopMeasure($args[0]);
+        } elseif ($name == 'addException') {
+            $this->debugbar['exceptions']->addException($args[0]);
+        } elseif ($name == 'info' || $name == 'debug') {
+            $this->debugbar['messages']->info($args[0]);
+        }
     }
 }
