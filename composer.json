@@ -1,0 +1,22 @@
+{
+    "name": "woody-wordpress/woody-lib-debugbar",
+    "type": "wordpress-vendor",
+    "version": "1.0.0",
+    "description": "This plugin adds all the features to debug in Woody",
+    "license": "GPL-2.0",
+    "authors": [
+        {
+            "name": "Léo POIROUX",
+            "email": "leo@raccourci.fr"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Woody\\Lib\\DebugBar\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.3",
+        "maximebf/debugbar": ">=1.0.0"
+    }
+}
